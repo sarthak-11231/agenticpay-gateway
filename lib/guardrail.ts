@@ -1,7 +1,5 @@
-import { CATALOG, Product } from "./catalog";
-
-const MAX_DISCOUNT_PERCENTAGE = 15;
-const MAX_ORDER_VALUE_INR = 50000;
+import crypto from "crypto";
+import { CATALOG, ACTIVE_POLICY, Product, MerchantPolicy } from "./catalog";
 
 export interface AuditStep {
   ruleId: string;
@@ -18,12 +16,15 @@ export interface GuardrailEvaluation {
   evaluatedQuantity?: number;
   totalAmountPaise?: number;
   auditTrail: AuditStep[];
+  cryptographicDigest?: string;
+  policySnapshot: MerchantPolicy;
 }
 
 export function evaluateOrderBoundaries(
   productIdOrSku: string,
   proposedUnitPrice: number,
-  quantity: number
+  quantity: number,
+  buyerAgentId: string = "agent_buyer_default"
 ): GuardrailEvaluation {
   const auditTrail: AuditStep[] = [];
   const cleanId = (productIdOrSku || "").trim().toLowerCase();
@@ -31,7 +32,9 @@ export function evaluateOrderBoundaries(
     (p) => p.id.toLowerCase() === cleanId || p.sku.toLowerCase() === cleanId
   );
 
-  // 1. SKU Check
+  const policy = { ...ACTIVE_POLICY };
+
+  // 1. SKU Existence Check
   if (!product) {
     auditTrail.push({
       ruleId: "RULE_SKU_EXISTS",
@@ -43,6 +46,7 @@ export function evaluateOrderBoundaries(
       status: "BLOCKED",
       reason: `Product '${productIdOrSku}' is not recognized in catalog.`,
       auditTrail,
+      policySnapshot: policy,
     };
   }
 
@@ -68,6 +72,7 @@ export function evaluateOrderBoundaries(
       reason: `Quantity ${quantity} exceeds inventory (${product.stock} units).`,
       product,
       auditTrail,
+      policySnapshot: policy,
     };
   }
 
@@ -90,49 +95,60 @@ export function evaluateOrderBoundaries(
       reason: `Price ₹${proposedUnitPrice} is below allowed floor price of ₹${product.floorPrice}.`,
       product,
       auditTrail,
+      policySnapshot: policy,
     };
   }
 
-  // 4. Max Discount Check
+  // 4. Max Discount Percentage Check
   const discountPct = ((product.price - proposedUnitPrice) / product.price) * 100;
-  const isDiscountValid = discountPct <= MAX_DISCOUNT_PERCENTAGE;
+  const isDiscountValid = discountPct <= policy.maxDiscountPercentage;
   auditTrail.push({
     ruleId: "RULE_MAX_DISCOUNT_CEILING",
-    description: `Ensure discount does not breach maximum cap (${MAX_DISCOUNT_PERCENTAGE}%)`,
+    description: `Ensure discount does not breach maximum cap (${policy.maxDiscountPercentage}%)`,
     passed: isDiscountValid,
     metadata: {
       calculatedDiscountPct: parseFloat(discountPct.toFixed(2)),
-      maxAllowedPct: MAX_DISCOUNT_PERCENTAGE,
+      maxAllowedPct: policy.maxDiscountPercentage,
     },
   });
 
   if (!isDiscountValid) {
     return {
       status: "BLOCKED",
-      reason: `Discount of ${discountPct.toFixed(1)}% exceeds maximum allowable ${MAX_DISCOUNT_PERCENTAGE}%.`,
+      reason: `Discount of ${discountPct.toFixed(1)}% exceeds maximum allowable ${policy.maxDiscountPercentage}%.`,
       product,
       auditTrail,
+      policySnapshot: policy,
     };
   }
 
-  // 5. Order Value Cap Check
+  // 5. Max Order Value Risk Cap Check
   const totalAmountINR = proposedUnitPrice * quantity;
-  const withinCap = totalAmountINR <= MAX_ORDER_VALUE_INR;
+  const withinCap = totalAmountINR <= policy.maxOrderValueINR;
   auditTrail.push({
     ruleId: "RULE_MAX_ORDER_CAP",
     description: "Verify total transaction does not exceed session risk cap",
     passed: withinCap,
-    metadata: { totalINR: totalAmountINR, maxCapINR: MAX_ORDER_VALUE_INR },
+    metadata: { totalINR: totalAmountINR, maxCapINR: policy.maxOrderValueINR },
   });
 
   if (!withinCap) {
     return {
       status: "BLOCKED",
-      reason: `Total ₹${totalAmountINR} exceeds safety cap of ₹${MAX_ORDER_VALUE_INR}.`,
+      reason: `Total ₹${totalAmountINR} exceeds safety cap of ₹${policy.maxOrderValueINR}.`,
       product,
       auditTrail,
+      policySnapshot: policy,
     };
   }
+
+  // Generate SHA-256 HMAC digest for Agent non-repudiation
+  const hmacSecret = process.env.RAZORPAY_KEY_SECRET || "default_hmac_secret";
+  const rawPayload = `${buyerAgentId}:${product.sku}:${proposedUnitPrice}:${quantity}:${Date.now()}`;
+  const cryptographicDigest = crypto
+    .createHmac("sha256", hmacSecret)
+    .update(rawPayload)
+    .digest("hex");
 
   return {
     status: "PASSED",
@@ -142,5 +158,7 @@ export function evaluateOrderBoundaries(
     evaluatedQuantity: quantity,
     totalAmountPaise: Math.round(totalAmountINR * 100),
     auditTrail,
+    cryptographicDigest,
+    policySnapshot: policy,
   };
 }

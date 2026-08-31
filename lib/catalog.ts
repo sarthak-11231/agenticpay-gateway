@@ -2,14 +2,21 @@ export interface Product {
   id: string;
   name: string;
   sku: string;
-  price: number;       // Base price in INR
-  floorPrice: number;  // Hard minimum boundary
+  price: number;
+  floorPrice: number;
   stock: number;
   category: string;
   description: string;
 }
 
-export const CATALOG: Product[] = [
+export interface MerchantPolicy {
+  maxDiscountPercentage: number;
+  maxOrderValueINR: number;
+  requireAgentSignature: boolean;
+}
+
+// In-memory catalog state
+export let CATALOG: Product[] = [
   {
     id: "prod_001",
     name: "Aura Noise-Cancelling Headphones",
@@ -41,3 +48,23 @@ export const CATALOG: Product[] = [
     description: "Compact dual USB-C GaN fast charging adapter.",
   },
 ];
+
+export let ACTIVE_POLICY: MerchantPolicy = {
+  maxDiscountPercentage: 15,
+  maxOrderValueINR: 50000,
+  requireAgentSignature: true,
+};
+
+export function updatePolicy(newPolicy: Partial<MerchantPolicy>) {
+  ACTIVE_POLICY = { ...ACTIVE_POLICY, ...newPolicy };
+  return ACTIVE_POLICY;
+}
+
+export function deductStock(productId: string, quantity: number) {
+  const item = CATALOG.find((p) => p.id === productId || p.sku === productId);
+  if (item && item.stock >= quantity) {
+    item.stock -= quantity;
+    return true;
+  }
+  return false;
+}
