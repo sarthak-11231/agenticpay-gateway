@@ -12,9 +12,11 @@ export interface GuardrailEvaluation {
   status: "PASSED" | "BLOCKED";
   reason: string;
   product?: Product;
+  bundleProduct?: Product;
   evaluatedUnitPrice?: number;
   evaluatedQuantity?: number;
   totalAmountPaise?: number;
+  isBundle?: boolean;
   auditTrail: AuditStep[];
   cryptographicDigest?: string;
   policySnapshot: MerchantPolicy;
@@ -24,7 +26,9 @@ export function evaluateOrderBoundaries(
   productIdOrSku: string,
   proposedUnitPrice: number,
   quantity: number,
-  buyerAgentId: string = "agent_buyer_default"
+  buyerAgentId: string = "agent_buyer_default",
+  bundleSku?: string,
+  bundlePrice?: number
 ): GuardrailEvaluation {
   const auditTrail: AuditStep[] = [];
   const cleanId = (productIdOrSku || "").trim().toLowerCase();
@@ -34,7 +38,7 @@ export function evaluateOrderBoundaries(
 
   const policy = { ...ACTIVE_POLICY };
 
-  // 1. SKU Existence Check
+  // 1. SKU Check
   if (!product) {
     auditTrail.push({
       ruleId: "RULE_SKU_EXISTS",
@@ -77,31 +81,46 @@ export function evaluateOrderBoundaries(
   }
 
   // 3. Price Floor Check
-  const meetsFloor = proposedUnitPrice >= product.floorPrice;
+  let effectiveFloor = product.floorPrice;
+  let bundleProduct: Product | undefined = undefined;
+
+  if (bundleSku) {
+    bundleProduct = CATALOG.find((p) => p.sku === bundleSku);
+    if (bundleProduct) {
+      effectiveFloor += bundleProduct.floorPrice;
+    }
+  }
+
+  const effectiveTotalProposed = (proposedUnitPrice * quantity) + (bundlePrice || 0);
+  const meetsFloor = effectiveTotalProposed >= effectiveFloor;
+
   auditTrail.push({
     ruleId: "RULE_PRICE_FLOOR",
-    description: "Verify unit price satisfies merchant floor price",
+    description: "Verify transaction satisfies merchant floor boundaries",
     passed: meetsFloor,
     metadata: {
-      proposedPrice: proposedUnitPrice,
-      floorPrice: product.floorPrice,
-      basePrice: product.price,
+      proposedTotal: effectiveTotalProposed,
+      minimumFloorRequired: effectiveFloor,
+      isBundle: Boolean(bundleProduct),
     },
   });
 
   if (!meetsFloor) {
     return {
       status: "BLOCKED",
-      reason: `Price ₹${proposedUnitPrice} is below allowed floor price of ₹${product.floorPrice}.`,
+      reason: `Offered value ₹${effectiveTotalProposed} breaches merchant floor threshold of ₹${effectiveFloor}.`,
       product,
+      bundleProduct,
       auditTrail,
       policySnapshot: policy,
     };
   }
 
-  // 4. Max Discount Percentage Check
-  const discountPct = ((product.price - proposedUnitPrice) / product.price) * 100;
+  // 4. Max Discount Ceiling
+  const baselineTotal = (product.price * quantity) + (bundleProduct ? bundleProduct.price : 0);
+  const discountPct = ((baselineTotal - effectiveTotalProposed) / baselineTotal) * 100;
   const isDiscountValid = discountPct <= policy.maxDiscountPercentage;
+
   auditTrail.push({
     ruleId: "RULE_MAX_DISCOUNT_CEILING",
     description: `Ensure discount does not breach maximum cap (${policy.maxDiscountPercentage}%)`,
@@ -117,34 +136,35 @@ export function evaluateOrderBoundaries(
       status: "BLOCKED",
       reason: `Discount of ${discountPct.toFixed(1)}% exceeds maximum allowable ${policy.maxDiscountPercentage}%.`,
       product,
+      bundleProduct,
       auditTrail,
       policySnapshot: policy,
     };
   }
 
-  // 5. Max Order Value Risk Cap Check
-  const totalAmountINR = proposedUnitPrice * quantity;
-  const withinCap = totalAmountINR <= policy.maxOrderValueINR;
+  // 5. Max Order Cap Check
+  const withinCap = effectiveTotalProposed <= policy.maxOrderValueINR;
   auditTrail.push({
     ruleId: "RULE_MAX_ORDER_CAP",
     description: "Verify total transaction does not exceed session risk cap",
     passed: withinCap,
-    metadata: { totalINR: totalAmountINR, maxCapINR: policy.maxOrderValueINR },
+    metadata: { totalINR: effectiveTotalProposed, maxCapINR: policy.maxOrderValueINR },
   });
 
   if (!withinCap) {
     return {
       status: "BLOCKED",
-      reason: `Total ₹${totalAmountINR} exceeds safety cap of ₹${policy.maxOrderValueINR}.`,
+      reason: `Total ₹${effectiveTotalProposed} exceeds safety cap of ₹${policy.maxOrderValueINR}.`,
       product,
+      bundleProduct,
       auditTrail,
       policySnapshot: policy,
     };
   }
 
-  // Generate SHA-256 HMAC digest for Agent non-repudiation
+  // Cryptographic Signature
   const hmacSecret = process.env.RAZORPAY_KEY_SECRET || "default_hmac_secret";
-  const rawPayload = `${buyerAgentId}:${product.sku}:${proposedUnitPrice}:${quantity}:${Date.now()}`;
+  const rawPayload = `${buyerAgentId}:${product.sku}:${bundleProduct ? bundleProduct.sku : "NONE"}:${effectiveTotalProposed}:${Date.now()}`;
   const cryptographicDigest = crypto
     .createHmac("sha256", hmacSecret)
     .update(rawPayload)
@@ -152,11 +172,15 @@ export function evaluateOrderBoundaries(
 
   return {
     status: "PASSED",
-    reason: "Transaction approved under all bounding rules.",
+    reason: bundleProduct
+      ? "Cross-sell bundle verified and approved under merchant bounding rules."
+      : "Transaction approved under all bounding rules.",
     product,
+    bundleProduct,
     evaluatedUnitPrice: proposedUnitPrice,
     evaluatedQuantity: quantity,
-    totalAmountPaise: Math.round(totalAmountINR * 100),
+    totalAmountPaise: Math.round(effectiveTotalProposed * 100),
+    isBundle: Boolean(bundleProduct),
     auditTrail,
     cryptographicDigest,
     policySnapshot: policy,

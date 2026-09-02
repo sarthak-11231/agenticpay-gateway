@@ -7,6 +7,8 @@ export interface Product {
   stock: number;
   category: string;
   description: string;
+  crossSellSku?: string;
+  crossSellPitch?: string;
 }
 
 export interface MerchantPolicy {
@@ -15,7 +17,6 @@ export interface MerchantPolicy {
   requireAgentSignature: boolean;
 }
 
-// In-memory catalog with real-world electronics & hardware
 export let CATALOG: Product[] = [
   {
     id: "prod_001",
@@ -26,6 +27,8 @@ export let CATALOG: Product[] = [
     stock: 8,
     category: "Audio",
     description: "Flagship active noise cancellation with USB-C MagSafe charging case and H2 chip.",
+    crossSellSku: "ANKER-PRIME-67W",
+    crossSellPitch: "Bundle an Anker Prime 67W GaN 3-Port Fast Charger for just ₹3,199 (Save 20%) to charge your AirPods & phone together.",
   },
   {
     id: "prod_002",
@@ -36,6 +39,8 @@ export let CATALOG: Product[] = [
     stock: 6,
     category: "Audio",
     description: "Industry-leading noise canceling overhead headphones with 30-hour battery life.",
+    crossSellSku: "ANKER-PRIME-67W",
+    crossSellPitch: "Add an Anker Prime 67W Fast Charger for ₹3,199 to unlock 3-minute quick charging (3 hours playback).",
   },
   {
     id: "prod_003",
@@ -46,6 +51,8 @@ export let CATALOG: Product[] = [
     stock: 5,
     category: "Wearables",
     description: "Super AMOLED sapphire crystal display with advanced sleep coaching and ECG tracking.",
+    crossSellSku: "ANKER-PRIME-67W",
+    crossSellPitch: "Bundle a high-speed GaN charging dock for ₹3,199 to ensure uninterrupted overnight health monitoring.",
   },
   {
     id: "prod_004",
@@ -56,6 +63,8 @@ export let CATALOG: Product[] = [
     stock: 14,
     category: "Peripherals",
     description: "QMK/VIA wireless custom mechanical keyboard with hot-swappable switches and RGB.",
+    crossSellSku: "ANKER-PRIME-67W",
+    crossSellPitch: "Add an Anker Prime GaN charger for ₹3,199 to power your entire desk setup cleanly.",
   },
   {
     id: "prod_005",
