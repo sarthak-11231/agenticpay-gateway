@@ -152,11 +152,13 @@ export default function Home() {
     }
   };
 
-  const sendMessage = async (customPrompt?: string) => {
+  const sendMessage = async (customPrompt?: string, resetHistory?: boolean) => {
     const textToSend = customPrompt || input;
     if (!textToSend.trim()) return;
 
-    const newMessages = [...messages, { role: "user", text: textToSend }];
+    const newMessages = resetHistory
+      ? [{ role: "user", text: textToSend }]
+      : [...messages, { role: "user", text: textToSend }];
     setMessages(newMessages);
     setInput("");
     setLoading(true);
@@ -174,7 +176,7 @@ export default function Home() {
 
       if (data.agentOutput?.message) {
         setMessages((prev) => [
-          ...prev,
+          ...(resetHistory ? [{ role: "user", text: textToSend }] : prev),
           { role: "assistant", text: data.agentOutput.message },
         ]);
       }
@@ -198,19 +200,30 @@ export default function Home() {
   const handleAcceptCrossSell = () => {
     if (!latestEvaluation || !crossSellOffer) return;
 
-    const currentUnit = latestEvaluation.evaluatedUnitPrice;
-    const bundleAdd = crossSellOffer.bundleAddPrice;
+    const baseProduct = latestEvaluation.product;
+    const baseUnit = latestEvaluation.evaluatedUnitPrice || baseProduct?.price || 0;
+    const bundleAdd = crossSellOffer.bundleAddPrice || 3199;
+    const bundledUnitPrice = baseUnit + bundleAdd;
+    const quantity = latestEvaluation.evaluatedQuantity || 1;
+    const totalPaise = bundledUnitPrice * quantity * 100;
+
+    const baseName = baseProduct?.name || "Product";
+    const bundledProductName = baseName.includes("Anker")
+      ? baseName
+      : `${baseName} + Anker 67W GaN Charger`;
 
     const bundledEval = {
       ...latestEvaluation,
+      status: "PASSED",
       isBundle: true,
-      totalAmountPaise: (currentUnit + bundleAdd) * 100,
-      evaluatedUnitPrice: currentUnit + bundleAdd,
+      totalAmountPaise: totalPaise,
+      evaluatedUnitPrice: bundledUnitPrice,
+      evaluatedQuantity: quantity,
       product: {
-        ...latestEvaluation.product,
-        name: `${latestEvaluation.product.name} + Anker 67W GaN Charger`,
+        ...baseProduct,
+        name: bundledProductName,
       },
-      reason: "Revenue Growth: Cross-sell bundle authorized under bounded policy.",
+      reason: `Revenue Growth: Cross-sell bundle authorized at ₹${bundledUnitPrice.toLocaleString()} under bounded policy.`,
     };
 
     setLatestEvaluation(bundledEval);
@@ -222,7 +235,7 @@ export default function Home() {
       },
       {
         role: "assistant",
-        text: "Cross-sell bundle confirmed. Locked at discounted package rate.",
+        text: `Cross-sell bundle confirmed at ₹${bundledUnitPrice.toLocaleString()}. Ready for instant checkout.`,
       },
     ]);
     setCrossSellOffer(null);
@@ -865,7 +878,8 @@ export default function Home() {
                     <button
                       onClick={() =>
                         sendMessage(
-                          "I want to buy 1 Sony WH-1000XM5 for ₹27000. Do you have accessories?"
+                          "I want to buy 1 Sony WH-1000XM5 for ₹27000.",
+                          true
                         )
                       }
                       className="w-full text-left rounded-xl border border-[#CFCAC0] bg-[#ECE8E1] p-3 text-xs hover:border-[#B5AFA4] hover:bg-[#DDD8CF] transition-all shadow-[0_1px_2px_rgba(0,0,0,0.02)] active:scale-[0.99] cursor-pointer"
@@ -880,7 +894,8 @@ export default function Home() {
                     <button
                       onClick={() =>
                         sendMessage(
-                          "I want to order 1 Apple AirPods Pro at ₹22500."
+                          "I want to buy 1 Apple AirPods Pro for ₹22500.",
+                          true
                         )
                       }
                       className="w-full text-left rounded-xl border border-[#CFCAC0] bg-[#ECE8E1] p-3 text-xs hover:border-[#B5AFA4] hover:bg-[#DDD8CF] transition-all shadow-[0_1px_2px_rgba(0,0,0,0.02)] active:scale-[0.99] cursor-pointer"
