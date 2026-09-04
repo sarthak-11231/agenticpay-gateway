@@ -17,7 +17,7 @@ export interface MerchantPolicy {
   requireAgentSignature: boolean;
 }
 
-export let CATALOG: Product[] = [
+export const DEFAULT_CATALOG: Product[] = [
   {
     id: "prod_001",
     name: "Apple AirPods Pro (2nd Gen, USB-C)",
@@ -28,7 +28,7 @@ export let CATALOG: Product[] = [
     category: "Audio",
     description: "Flagship active noise cancellation with USB-C MagSafe charging case and H2 chip.",
     crossSellSku: "ANKER-PRIME-67W",
-    crossSellPitch: "Bundle an Anker Prime 67W GaN 3-Port Fast Charger for just ₹3,199 (Save 20%) to charge your AirPods & phone together.",
+    crossSellPitch: "Bundle an Anker Prime 67W GaN 3-Port Fast Charger for just ₹3,199 (Save 20%) to fast charge your AirPods & phone together.",
   },
   {
     id: "prod_002",
@@ -78,6 +78,8 @@ export let CATALOG: Product[] = [
   },
 ];
 
+export let CATALOG: Product[] = JSON.parse(JSON.stringify(DEFAULT_CATALOG));
+
 export let ACTIVE_POLICY: MerchantPolicy = {
   maxDiscountPercentage: 15,
   maxOrderValueINR: 100000,
@@ -96,4 +98,13 @@ export function deductStock(productId: string, quantity: number) {
     return true;
   }
   return false;
+}
+
+export function resetInventory(): Product[] {
+  CATALOG = JSON.parse(JSON.stringify(DEFAULT_CATALOG));
+  return CATALOG;
+}
+
+export function getCatalog(): Product[] {
+  return CATALOG;
 }

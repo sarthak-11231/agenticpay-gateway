@@ -20,7 +20,7 @@ export default function RootLayout({
           strategy="lazyOnload"
         />
       </head>
-      <body className="bg-neutral-950 text-neutral-100 antialiased">
+      <body className="bg-[#E4E0DA] text-[#111111] antialiased">
         {children}
       </body>
     </html>
